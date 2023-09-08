@@ -17,9 +17,8 @@ from ..postprocessing import detector_postprocess
 from ..proposal_generator import build_proposal_generator
 from ..roi_heads import build_roi_heads
 from .build import META_ARCH_REGISTRY
-
+from ..da_modules.image_level_discriminators import *
 __all__ = ["GeneralizedRCNN", "ProposalNetwork"]
-
 
 @META_ARCH_REGISTRY.register()
 class GeneralizedRCNN(nn.Module):
@@ -41,6 +40,7 @@ class GeneralizedRCNN(nn.Module):
         pixel_std: Tuple[float],
         input_format: Optional[str] = None,
         vis_period: int = 0,
+        model_weights: str
     ):
         """
         Args:
@@ -56,7 +56,19 @@ class GeneralizedRCNN(nn.Module):
         self.backbone = backbone
         self.proposal_generator = proposal_generator
         self.roi_heads = roi_heads
-
+        
+        if self.training:
+            if "FPN" in model_weights:
+                self.backbone_name = "FPN"
+                self.dim_in_feature_discriminator = 256
+            elif "DC5" in model_weights:
+                self.backbone_name = "DC5"
+                self.dim_in_feature_discriminator = 2048
+            elif "C4" in model_weights:
+                self.backbone_name = "C4"
+                self.dim_in_feature_discriminator = 1024
+            self.discriminator = Discriminator(self.dim_in_feature_discriminator)
+        
         self.input_format = input_format
         self.vis_period = vis_period
         if vis_period > 0:
@@ -71,6 +83,7 @@ class GeneralizedRCNN(nn.Module):
     @classmethod
     def from_config(cls, cfg):
         backbone = build_backbone(cfg)
+        print(cfg.MODEL.BACKBONE.NAME)
         return {
             "backbone": backbone,
             "proposal_generator": build_proposal_generator(cfg, backbone.output_shape()),
@@ -79,6 +92,7 @@ class GeneralizedRCNN(nn.Module):
             "vis_period": cfg.VIS_PERIOD,
             "pixel_mean": cfg.MODEL.PIXEL_MEAN,
             "pixel_std": cfg.MODEL.PIXEL_STD,
+            "model_weights": cfg.MODEL.WEIGHTS
         }
 
     @property
@@ -123,7 +137,7 @@ class GeneralizedRCNN(nn.Module):
             storage.put_image(vis_name, vis_img)
             break  # only visualize one image in a batch
 
-    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]]):
+    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]], target_domain = False, alpha=0.1):
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
@@ -157,6 +171,13 @@ class GeneralizedRCNN(nn.Module):
 
         features = self.backbone(images.tensor)
 
+        if self.backbone_name == "FPN":
+            loss_discriminator =  self.discriminator(features["p5"], target_domain, alpha)
+        elif self.backbone_name == "C4":
+            loss_discriminator =  self.discriminator(features["res4"], target_domain, alpha)
+        elif self.backbone_name == "DC5":
+            loss_discriminator =  self.discriminator(features["res5"], target_domain, alpha)
+
         if self.proposal_generator is not None:
             proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
         else:
@@ -164,15 +185,19 @@ class GeneralizedRCNN(nn.Module):
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
             proposal_losses = {}
 
-        _, detector_losses = self.roi_heads(images, features, proposals, gt_instances)
+        #inserire qui il modulo di allineamento delle proposal
+        _, detector_losses = self.roi_heads(images, features, proposals, gt_instances, target_domain, alpha)
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
                 self.visualize_training(batched_inputs, proposals)
 
+        #aggiungere qui loss consistency
         losses = {}
         losses.update(detector_losses)
         losses.update(proposal_losses)
+        losses.update(loss_discriminator)
+        losses["loss_instance_d"] = losses.pop("loss_instance_d") #this instruction is computed only to have a better output format: 1) standard faster rcnn + 2) domain adaptive module
         return losses
 
     def inference(
@@ -218,7 +243,8 @@ class GeneralizedRCNN(nn.Module):
         if do_postprocess:
             assert not torch.jit.is_scripting(), "Scripting is not supported for postprocess."
             return GeneralizedRCNN._postprocess(results, batched_inputs, images.image_sizes)
-        return results
+        else:
+            return results
 
     def preprocess_image(self, batched_inputs: List[Dict[str, torch.Tensor]]):
         """
