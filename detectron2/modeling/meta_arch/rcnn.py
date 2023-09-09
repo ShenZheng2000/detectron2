@@ -18,9 +18,12 @@ from ..proposal_generator import build_proposal_generator
 from ..roi_heads import build_roi_heads
 from .build import META_ARCH_REGISTRY
 from ..da_modules.image_level_discriminators import *
+
+# NOTE: import warp aug here
+from ..transforms.fovea import process_and_update_features
+
 __all__ = ["GeneralizedRCNN", "ProposalNetwork"]
 
-# TODO: import process_and_update_features
 
 @META_ARCH_REGISTRY.register()
 class GeneralizedRCNN(nn.Module):
@@ -139,7 +142,8 @@ class GeneralizedRCNN(nn.Module):
             storage.put_image(vis_name, vis_img)
             break  # only visualize one image in a batch
 
-    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]], target_domain = False, alpha=0.1):
+    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]], target_domain = False, alpha=0.1,
+                warp_aug_lzu=False, vp_dict=None, grid_net=None):
         """
         Args:
             batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
@@ -170,8 +174,13 @@ class GeneralizedRCNN(nn.Module):
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
         else:
             gt_instances = None
-        # TODO: add zoom-unzoom here
-        features = self.backbone(images.tensor)
+
+        # print(f"batched_inputs is {batched_inputs}")
+        
+        if warp_aug_lzu:
+            features = process_and_update_features(batched_inputs, images, warp_aug_lzu, vp_dict, grid_net, self.backbone)
+        else:
+            features = self.backbone(images.tensor)
 
         if self.backbone_name == "FPN":
             loss_discriminator =  self.discriminator(features["p5"], target_domain, alpha)
@@ -341,7 +350,8 @@ class ProposalNetwork(nn.Module):
             self.backbone.size_divisibility,
             padding_constraints=self.backbone.padding_constraints,
         )
-        # TODO: add zoom-unzoom here
+        # no need for zoom-unzoom here
+        # print("proposal network forward!!!!!!!!")
         features = self.backbone(images.tensor)
 
         if "instances" in batched_inputs[0]:
