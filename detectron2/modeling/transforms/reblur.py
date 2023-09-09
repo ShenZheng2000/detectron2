@@ -104,8 +104,8 @@ import os
     
 #     return img
 
-
-def get_vanising_points(image_path, vanishing_points, ratio=1.0, flip_transform=False):
+# NOTE; hardcode ratio to solve vp size issues
+def get_vanising_points(image_path, vanishing_points, ratio=5/6, flip_transform=False):
 
     # Get flip and new_width information
     flip = isinstance(flip_transform, HFlipTransform)

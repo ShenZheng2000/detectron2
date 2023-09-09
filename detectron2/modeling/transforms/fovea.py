@@ -187,7 +187,7 @@ def process_and_update_features(batched_inputs, images, warp_aug_lzu, vp_dict, g
         ])
         warped_images = torch.stack(warped_images)
 
-        # # NOTE: debug visualization
+        # # # NOTE: debug visualization
         # for i, img in enumerate(warped_images):
         #     # Save the image
         #     vutils.save_image(img, f'warped_image_{i}.jpg', normalize=True)        

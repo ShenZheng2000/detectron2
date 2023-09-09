@@ -175,8 +175,6 @@ class GeneralizedRCNN(nn.Module):
         else:
             gt_instances = None
 
-        # print(f"batched_inputs is {batched_inputs}")
-        
         if warp_aug_lzu:
             features = process_and_update_features(batched_inputs, images, warp_aug_lzu, vp_dict, grid_net, self.backbone)
         else:
