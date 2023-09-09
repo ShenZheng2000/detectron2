@@ -20,6 +20,8 @@ from .build import META_ARCH_REGISTRY
 from ..da_modules.image_level_discriminators import *
 __all__ = ["GeneralizedRCNN", "ProposalNetwork"]
 
+# TODO: import process_and_update_features
+
 @META_ARCH_REGISTRY.register()
 class GeneralizedRCNN(nn.Module):
     """
@@ -168,7 +170,7 @@ class GeneralizedRCNN(nn.Module):
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
         else:
             gt_instances = None
-
+        # TODO: add zoom-unzoom here
         features = self.backbone(images.tensor)
 
         if self.backbone_name == "FPN":
@@ -339,6 +341,7 @@ class ProposalNetwork(nn.Module):
             self.backbone.size_divisibility,
             padding_constraints=self.backbone.padding_constraints,
         )
+        # TODO: add zoom-unzoom here
         features = self.backbone(images.tensor)
 
         if "instances" in batched_inputs[0]:
